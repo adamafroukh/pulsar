@@ -1,0 +1,1611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Pulsar: The Memory Maze</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@200;300;400;500&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     RESET
+     ============================================================ */
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #050505;            /* pitch black for neon contrast */
+    font-family: 'Roboto Mono', monospace;
+    color: #eafcff;
+    touch-action: none;
+  }
+
+  /* ============================================================
+     STAGE
+     ============================================================ */
+  #stage {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    background: #050505;
+    overflow: hidden;
+  }
+
+  /* Screen-shake wrapper */
+  #shaker {
+    position: absolute;
+    inset: 0;
+    will-change: transform;
+  }
+  #shaker.shake {
+    animation: shake 0.32s cubic-bezier(.36,.07,.19,.97) both;
+  }
+  @keyframes shake {
+    10%, 90% { transform: translate3d(-2px, 0, 0); }
+    20%, 80% { transform: translate3d(3px, 0, 0); }
+    30%, 50%, 70% { transform: translate3d(-5px, 1px, 0); }
+    40%, 60% { transform: translate3d(5px, -1px, 0); }
+  }
+
+  /* ============================================================
+     PROGRESS BAR (1px micro timer)
+     ============================================================ */
+  #progress-track {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    z-index: 100;
+    pointer-events: none;
+  }
+  #progress-bar {
+    height: 100%;
+    width: 100%;
+    transform-origin: left center;
+    background: #00ffff;
+    box-shadow: 0 0 8px #00ffff, 0 0 4px #00ffff;
+    transition: background 0.4s ease, box-shadow 0.4s ease;
+  }
+  #progress-bar.dash {
+    background: #ff007f;
+    box-shadow: 0 0 8px #ff007f, 0 0 4px #ff007f;
+  }
+
+  /* ============================================================
+     MAZE GRID
+     ============================================================ */
+  #maze {
+    position: absolute;
+    transition: opacity 0.6s ease-in-out;
+  }
+  #maze.transitioning { opacity: 0; }
+
+  /* Walls: thin neon-magenta lines with glowing aura, opacity-driven flash */
+  .wall {
+    position: absolute;
+    background: #ff007f;
+    border-radius: 2px;
+    opacity: 0;
+    box-shadow: 0 0 0 #ff007f;
+    transition: opacity 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+  }
+  #maze.flash .wall {
+    opacity: 1;
+    box-shadow: 0 0 10px #ff007f, 0 0 5px #ff007f;
+  }
+
+  /* Start / Finish markers */
+  .marker {
+    position: absolute;
+    border-radius: 50%;
+  }
+  .marker.start {
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.25), transparent 70%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+  }
+  .marker.finish {
+    background: radial-gradient(circle, rgba(57, 255, 136, 0.35), transparent 70%);
+    border: 1px solid #39ff88;                /* neon green */
+    box-shadow: 0 0 14px #39ff88, 0 0 6px #39ff88;
+    opacity: 1 !important;
+    animation: finishPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes finishPulse {
+    0%, 100% { box-shadow: 0 0 10px #39ff88, 0 0 5px #39ff88; }
+    50%      { box-shadow: 0 0 22px #39ff88, 0 0 12px #39ff88; }
+  }
+
+  /* ============================================================
+     PLAYER (flat cream circle, no glow)
+     ============================================================ */
+  #player {
+    position: absolute;
+    border-radius: 50%;
+    background: #00ffff;
+    box-shadow: 0 0 12px #00ffff, 0 0 22px rgba(0, 255, 255, 0.6);
+    z-index: 30;
+    will-change: transform;
+    transition: background 0.12s ease, box-shadow 0.12s ease;
+  }
+  #player.hurt {
+    background: #ff2d55;
+    box-shadow: 0 0 14px #ff2d55, 0 0 28px rgba(255, 45, 85, 0.7);
+  }
+
+  /* Visual-sound ripple */
+  .ripple {
+    position: absolute;
+    border-radius: 50%;
+    border: 2px solid #00ffff;
+    box-shadow: 0 0 10px #00ffff;
+    z-index: 29;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    animation: rippleOut 0.6s ease-out forwards;
+  }
+  .ripple.danger { border-color: #ff2d55; box-shadow: 0 0 10px #ff2d55; }
+  .ripple.goal   { border-color: #39ff88; box-shadow: 0 0 10px #39ff88; }
+  @keyframes rippleOut {
+    0%   { width: 10px;  height: 10px;  opacity: 0.85; }
+    100% { width: 140px; height: 140px; opacity: 0; }
+  }
+
+  /* ============================================================
+     DARKNESS SPOTLIGHT (neutral matte, no tint)
+     ============================================================ */
+  #spotlight {
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.5s ease-in-out;
+    background: radial-gradient(
+      circle var(--spot-radius, 70px) at var(--spot-x, 50%) var(--spot-y, 50%),
+      rgba(5, 5, 5, 0) 0%,
+      rgba(5, 5, 5, 0.55) 55%,
+      rgba(5, 5, 5, 0.98) 100%
+    );
+  }
+  #spotlight.active { opacity: 1; }
+
+  /* ============================================================
+     VIRTUAL JOYSTICK
+     ============================================================ */
+  #joystick {
+    position: absolute;
+    z-index: 60;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 255, 255, 0.35);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+    display: none;
+  }
+  #joystick.active { display: block; opacity: 1; }
+  #joy-knob {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: #00ffff;
+    box-shadow: 0 0 14px #00ffff;
+    transform: translate(-50%, -50%);
+  }
+
+  /* ============================================================
+     HUD — lives, score, level
+     ============================================================ */
+  #level-tag {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 90;
+    color: rgba(0, 255, 255, 0.35);
+    font-size: 11px;
+    letter-spacing: 0.45em;
+    font-weight: 300;
+    pointer-events: none;
+  }
+
+  /* ------------------------------------------------------------
+     GAMEPLAY HUD VISIBILITY
+     Hidden while the start/end overlay is up; fades in elegantly
+     only once the engine state switches to PLAYING (body.playing).
+     ------------------------------------------------------------ */
+  #lives, #timer, #level-tag {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.6s ease, visibility 0.6s ease;
+  }
+  body.playing #lives,
+  body.playing #timer,
+  body.playing #level-tag {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  /* ------------------------------------------------------------
+     END-SCREEN LAYERING FIX
+     While an end overlay is active (body.ended), wipe out all
+     gameplay layers — maze, player, spotlight, flash button — so the
+     end screen sits on a pure velvet-black background.
+     ------------------------------------------------------------ */
+  body.ended #shaker,
+  body.ended #flash-btn,
+  body.ended #flash-overlay {
+    display: none !important;
+  }
+
+  #lives {
+    position: absolute;
+    top: 14px;
+    left: 16px;
+    z-index: 90;
+    display: flex;
+    gap: 8px;
+    pointer-events: none;
+  }
+  #lives .life {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #00ffff;
+    box-shadow: 0 0 10px #00ffff;
+    transition: opacity 0.45s ease, transform 0.45s ease, background 0.25s ease, box-shadow 0.25s ease;
+  }
+  #lives .life.lost {
+    background: rgba(0, 255, 255, 0.18);
+    box-shadow: none;
+    transform: scale(0.7);
+  }
+
+  /* ============================================================
+     MOBILE FLASH TRIGGER — minimalist "PULSE" action button.
+     Hidden on desktop; rendered on mobile/touch viewports.
+     Anchored BOTTOM-LEFT, leaving the bottom-right clean for the
+     virtual-joystick touch zone.
+     ============================================================ */
+  #flash-btn {
+    display: none;                 /* hidden by default (desktop) */
+    position: fixed;               /* fixed to the viewport corner */
+    bottom: 30px;
+    left: 30px;
+    right: auto;
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    border: 1px solid #00ffff;
+    background: rgba(0, 255, 255, 0.05);
+    box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+    color: #00ffff;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    cursor: pointer;
+    pointer-events: auto;
+    z-index: 9999;                 /* stay above the maze / spotlight layers */
+    touch-action: manipulation;
+    transition: transform 0.15s ease, opacity 0.3s ease, box-shadow 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #flash-btn:active { transform: scale(0.88); box-shadow: 0 0 18px #00ffff; }
+  #flash-btn svg { width: 20px; height: 20px; display: block; }
+  #flash-btn .icon-stroke { stroke: currentColor; }
+  #flash-btn .label {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    line-height: 1;
+  }
+  /* depleted (no charges left) state */
+  #flash-btn.depleted {
+    border-color: rgba(255, 45, 85, 0.5);
+    color: #ff2d55;
+    box-shadow: none;
+    opacity: 0.45;
+  }
+  /* live charge count badge */
+  #flash-btn .count {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 3px;
+    border-radius: 8px;
+    background: #050505;
+    border: 1px solid #00ffff;
+    color: #00ffff;
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 14px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  #flash-btn.depleted .count { border-color: rgba(255, 45, 85, 0.5); color: #ff2d55; }
+
+  /* Red shake feedback when tapped with no charges left */
+  #flash-btn.empty-shake { animation: pulseEmpty 0.4s ease-out; }
+  @keyframes pulseEmpty {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-4px); }
+    50% { transform: translateX(4px); }
+    75% { transform: translateX(-3px); }
+  }
+
+  /* Render the button on small (mobile) viewports... (only while playing).
+     Explicitly anchor BOTTOM-LEFT so the bottom-right stays clear. */
+  @media (max-width: 768px) {
+    body.playing #flash-btn { display: flex; }
+    #flash-btn { left: 30px; bottom: 30px; right: auto; }
+  }
+  /* ...and on any touch-primary device regardless of width (tablets, etc.) */
+  @media (hover: none) and (pointer: coarse) {
+    body.playing #flash-btn { display: flex; }
+  }
+  /* JS fallback: force visibility when touch is detected at runtime */
+  body.playing #flash-btn.force-visible { display: flex; }
+  /* Always hidden when not actively playing (menu / game-over screens) */
+  body:not(.playing) #flash-btn { display: none !important; }
+
+  /* Manual flash uses the same wall-illumination styling as the loop flash */
+  #maze.manual-flash .wall {
+    opacity: 1;
+    box-shadow: 0 0 10px #ff007f, 0 0 5px #ff007f;
+  }
+
+  /* Live count-up timer (top-right) */
+  #timer {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    z-index: 90;
+    color: #00ffff;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-shadow: 0 0 8px rgba(0, 255, 255, 0.6);
+    pointer-events: none;
+    /* tabular figures so digits don't jump while ticking */
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+  /* Victory stat lines */
+  .stat-line {
+    font-size: clamp(11px, 2.6vw, 14px);
+    letter-spacing: 0.18em;
+    color: rgba(234, 252, 255, 0.55);
+    margin-bottom: 8px;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+  .stat-line b { color: #00ffff; font-weight: 500; text-shadow: 0 0 8px rgba(0, 255, 255, 0.55); }
+  .stat-line.final {
+    font-size: clamp(15px, 4vw, 22px);
+    letter-spacing: 0.22em;
+    color: rgba(234, 252, 255, 0.8);
+    margin: 18px 0 28px;
+  }
+  .stat-line.final b { color: #39ff88; text-shadow: 0 0 14px rgba(57, 255, 136, 0.7); }
+
+  /* ============================================================
+     SCREENS (start / end)
+     ============================================================ */
+  .screen {
+    position: absolute;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 5, 5, 0.92);
+    text-align: center;
+    transition: opacity 0.5s ease;
+    padding: 24px;
+  }
+  /* End screen: pure velvet black, above every gameplay layer */
+  #end-overlay {
+    z-index: 10000;
+    background: #050505;
+  }
+  .screen.hidden { opacity: 0; pointer-events: none; }
+  .screen.gone   { display: none; }
+
+  .screen h1 {
+    font-weight: 200;
+    letter-spacing: 0.35em;
+    font-size: clamp(22px, 6vw, 44px);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    color: #00ffff;
+    text-shadow: 0 0 18px rgba(0, 255, 255, 0.7), 0 0 6px rgba(0, 255, 255, 0.5);
+  }
+  .screen h2 {
+    font-weight: 200;
+    letter-spacing: 0.25em;
+    font-size: clamp(13px, 3vw, 18px);
+    color: #ff007f;
+    text-shadow: 0 0 12px rgba(255, 0, 127, 0.6);
+    margin-bottom: 30px;
+    text-transform: uppercase;
+  }
+  .screen p {
+    font-weight: 300;
+    font-size: clamp(12px, 3vw, 15px);
+    line-height: 1.9;
+    color: rgba(234, 252, 255, 0.6);
+    max-width: 420px;
+    margin-bottom: 34px;
+  }
+  .screen .btn {
+    pointer-events: auto;
+    cursor: pointer;
+    padding: 15px 46px;
+    border: 1px solid #00ffff;
+    border-radius: 2px;        /* sharp, rectangular — matches maze geometry */
+    color: #00ffff;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
+    font-size: 13px;
+    font-family: inherit;
+    background: transparent;
+    transition: background 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+  }
+  .screen .btn:hover, .screen .btn:active {
+    background: #00ffff;
+    color: #050505;
+    box-shadow: 0 0 24px #00ffff;
+  }
+  /* Victory — "PULSE SECURED" in neon cyan */
+  .screen.victory h1 { color: #00ffff; text-shadow: 0 0 18px rgba(0, 255, 255, 0.7), 0 0 6px rgba(0, 255, 255, 0.5); }
+  .screen.victory h2 { color: #00ffff; text-shadow: 0 0 12px rgba(0, 255, 255, 0.55); }
+
+  /* Defeat — "PULSE LOST" in neon magenta */
+  .screen.defeat h1 { color: #ff007f; text-shadow: 0 0 18px rgba(255, 0, 127, 0.7), 0 0 6px rgba(255, 0, 127, 0.5); }
+  .screen.defeat h2 { color: #ff007f; text-shadow: 0 0 12px rgba(255, 0, 127, 0.6); }
+
+  /* ============================================================
+     REPLAY BUTTON — sharp, glowing, with translucent fill on press
+     ============================================================ */
+  .btn.replay {
+    border-width: 1px;
+    border-radius: 2px;
+    text-shadow: 0 0 5px currentColor;
+    box-shadow: 0 0 10px rgba(0, 255, 255, 0.35), inset 0 0 8px rgba(0, 255, 255, 0.08);
+    transition: background 0.25s ease, color 0.25s ease, box-shadow 0.25s ease, transform 0.12s ease;
+  }
+  .btn.replay:hover, .btn.replay:active {
+    background: rgba(0, 255, 255, 0.12);
+    color: #fff;
+    box-shadow: 0 0 22px rgba(0, 255, 255, 0.6), inset 0 0 14px rgba(0, 255, 255, 0.18);
+    transform: scale(1.03);
+  }
+  /* Victory replay glows cyan */
+  .screen.victory .btn.replay { border-color: #00ffff; color: #00ffff; box-shadow: 0 0 10px rgba(0,255,255,0.35), inset 0 0 8px rgba(0,255,255,0.08); }
+  .screen.victory .btn.replay:hover, .screen.victory .btn.replay:active {
+    background: rgba(0, 255, 255, 0.12); color: #fff;
+    box-shadow: 0 0 22px rgba(0, 255, 255, 0.6), inset 0 0 14px rgba(0, 255, 255, 0.18);
+  }
+  /* Defeat replay glows magenta */
+  .screen.defeat .btn.replay { border-color: #ff007f; color: #ff007f; text-shadow: 0 0 5px #ff007f; box-shadow: 0 0 10px rgba(255,0,127,0.35), inset 0 0 8px rgba(255,0,127,0.08); }
+  .screen.defeat .btn.replay:hover, .screen.defeat .btn.replay:active {
+    background: rgba(255, 0, 127, 0.14); color: #fff;
+    box-shadow: 0 0 22px rgba(255, 0, 127, 0.6), inset 0 0 14px rgba(255, 0, 127, 0.2);
+  }
+
+  .screen .final-score {
+    font-size: clamp(14px, 4vw, 20px);
+    letter-spacing: 0.3em;
+    margin-bottom: 28px;
+    font-weight: 300;
+    color: rgba(234, 252, 255, 0.65);
+  }
+  .screen .final-score b {
+    color: #00ffff;
+    font-weight: 500;
+    text-shadow: 0 0 12px rgba(0, 255, 255, 0.7);
+  }
+
+  /* Goal flash */
+  #flash-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 150;
+    background: #39ff88;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+  }
+  #flash-overlay.flash { opacity: 0.35; }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div id="progress-track"><div id="progress-bar"></div></div>
+    <div id="level-tag">LEVEL 01</div>
+
+    <div id="lives">
+      <div class="life"></div>
+      <div class="life"></div>
+      <div class="life"></div>
+    </div>
+    <div id="timer">00:00.00</div>
+
+    <div id="shaker">
+      <div id="maze"></div>
+      <div id="player"></div>
+      <div id="spotlight"></div>
+    </div>
+
+    <div id="flash-overlay"></div>
+    <div id="joystick"><div id="joy-knob"></div></div>
+
+    <!-- Mobile flash-help trigger (eye / spark icon) -->
+    <button id="flash-btn" aria-label="Flash Help — Pulse">
+      <svg viewBox="0 0 24 24" fill="none">
+        <path class="icon-stroke" d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z" stroke-width="1.5"/>
+        <circle class="icon-stroke" cx="12" cy="12" r="3" stroke-width="1.5"/>
+      </svg>
+      <span class="label">PULSE</span>
+      <span class="count">3</span>
+    </button>
+
+    <!-- START SCREEN -->
+    <div id="overlay" class="screen">
+      <h1>PULSAR</h1>
+      <h2>The Memory Maze</h2>
+      <p>
+        Memorize the path. Dash through the dark.<br><br>
+        <b>Desktop:</b> Arrow Keys / WASD &nbsp;&nbsp; <b><br>Mobile:</b> Touch &amp; drag to steer
+      </p>
+      <button class="btn" id="start-btn">Start Game</button>
+    </div>
+
+    <!-- END SCREEN -->
+    <div id="end-overlay" class="screen hidden gone">
+      <h1 id="end-title">Pulse Secured</h1>
+      <h2 id="end-sub">All sectors cleared</h2>
+      <div id="end-stats">
+        <div class="stat-line">TIME ELAPSED &nbsp;<b id="stat-time">00:00.00</b></div>
+        <div class="stat-line" id="stat-level-row">LEVEL REACHED &nbsp;<b id="stat-level">01</b></div>
+        <div class="stat-line final" id="stat-score-row">FINAL LEVEL SCORE &nbsp;<b id="stat-score">0 PTS</b></div>
+      </div>
+      <button class="btn replay" id="replay-btn">Replay</button>
+    </div>
+  </div>
+
+<script>
+"use strict";
+
+/* ============================================================================
+   UTILS
+   ============================================================================ */
+const Utils = {
+  clamp: (v, min, max) => Math.max(min, Math.min(max, v)),
+  rand: (n) => Math.floor(Math.random() * n)
+};
+
+/* ============================================================================
+   EVENT BUS — central custom-event dispatcher
+   ============================================================================ */
+class EventBus extends EventTarget {
+  emit(name, detail) { this.dispatchEvent(new CustomEvent(name, { detail })); }
+  on(name, cb) { this.addEventListener(name, cb); }
+}
+
+/* ============================================================================
+   GAME STATE
+   ============================================================================ */
+const GameState = Object.freeze({
+  MENU: 'MENU',
+  PLAYING: 'PLAYING',
+  PAUSED: 'PAUSED',
+  GAMEOVER: 'GAMEOVER'
+});
+
+/* ============================================================================
+   MAZE GENERATOR — perfect maze via iterative randomized DFS.
+   Grid is tailored to the viewport aspect ratio (tall on mobile, wide on desktop).
+   ============================================================================ */
+class MazeGenerator {
+  constructor() {
+    this.cols = 0;
+    this.rows = 0;
+    this.cells = [];
+    this.start = { c: 0, r: 0 };
+    this.finish = { c: 0, r: 0 };
+  }
+
+  configure(vw, vh, level) {
+    const portrait = vh >= vw;
+    const longAxis = 9 + Math.min(level, 8);
+    const aspect = portrait ? vh / vw : vw / vh;
+    const shortAxis = Math.max(6, Math.round(longAxis / aspect));
+    this.cols = portrait ? shortAxis : longAxis;
+    this.rows = portrait ? longAxis : shortAxis;
+    return this;
+  }
+
+  index(c, r) { return r * this.cols + c; }
+
+  generate() {
+    const total = this.cols * this.rows;
+    this.cells = new Array(total);
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        this.cells[this.index(c, r)] = {
+          c, r,
+          walls: { N: true, E: true, S: true, W: true },
+          visited: false
+        };
+      }
+    }
+
+    const stack = [];
+    let current = this.cells[0];
+    current.visited = true;
+    let visited = 1;
+
+    while (visited < total) {
+      const next = this._nextNeighbor(current);
+      if (next) {
+        this._removeWall(current, next);
+        next.visited = true;
+        visited++;
+        stack.push(current);
+        current = next;
+      } else if (stack.length) {
+        current = stack.pop();
+      } else {
+        break;
+      }
+    }
+
+    this.start = { c: 0, r: 0 };
+    this.finish = { c: this.cols - 1, r: this.rows - 1 };
+    return this;
+  }
+
+  _nextNeighbor(cell) {
+    const { c, r } = cell;
+    const out = [];
+    if (r > 0 && !this.cells[this.index(c, r - 1)].visited) out.push(this.cells[this.index(c, r - 1)]);
+    if (c < this.cols - 1 && !this.cells[this.index(c + 1, r)].visited) out.push(this.cells[this.index(c + 1, r)]);
+    if (r < this.rows - 1 && !this.cells[this.index(c, r + 1)].visited) out.push(this.cells[this.index(c, r + 1)]);
+    if (c > 0 && !this.cells[this.index(c - 1, r)].visited) out.push(this.cells[this.index(c - 1, r)]);
+    return out.length ? out[Utils.rand(out.length)] : null;
+  }
+
+  _removeWall(a, b) {
+    const dx = b.c - a.c, dy = b.r - a.r;
+    if (dx === 1)      { a.walls.E = false; b.walls.W = false; }
+    else if (dx === -1){ a.walls.W = false; b.walls.E = false; }
+    else if (dy === 1) { a.walls.S = false; b.walls.N = false; }
+    else if (dy === -1){ a.walls.N = false; b.walls.S = false; }
+  }
+}
+
+/* ============================================================================
+   TIMER ENGINE — strict 10s cycle: 2s FLASH (walls visible) + 8s DASH (dark).
+   Emits "flash:on" / "flash:off" and drives the progress bar via rAF.
+   ============================================================================ */
+class TimerEngine {
+  constructor(bus) {
+    this.bus = bus;
+    this.FLASH_MS = 2000;
+    this.DASH_MS = 8000;
+    this.CYCLE_MS = this.FLASH_MS + this.DASH_MS;
+    this.running = false;
+    this.phase = null;
+    this.cycleStart = 0;
+    this._raf = null;
+    this._tick = this._tick.bind(this);
+  }
+
+  start() {
+    if (this.running) return;
+    this.running = true;
+    this._enterFlash(performance.now());
+    this._raf = requestAnimationFrame(this._tick);
+  }
+
+  stop() {
+    this.running = false;
+    if (this._raf) cancelAnimationFrame(this._raf);
+    this._raf = null;
+  }
+
+  reset() {
+    // Each level begins with a planning flash.
+    this._enterFlash(performance.now());
+  }
+
+  _enterFlash(now) {
+    this.phase = 'flash';
+    this.cycleStart = now;
+    this.bus.emit('flash:on');
+  }
+
+  _enterDash() {
+    this.phase = 'dash';
+    this.bus.emit('flash:off');
+  }
+
+  _tick(now) {
+    if (!this.running) return;
+    const elapsed = now - this.cycleStart;
+
+    if (this.phase === 'flash' && elapsed >= this.FLASH_MS) this._enterDash();
+    else if (this.phase === 'dash' && elapsed >= this.CYCLE_MS) this._enterFlash(now);
+
+    const ratio = Utils.clamp((this.CYCLE_MS - elapsed) / this.CYCLE_MS, 0, 1);
+    this.bus.emit('timer:progress', { ratio });
+
+    this._raf = requestAnimationFrame(this._tick);
+  }
+}
+
+/* ============================================================================
+   STAGE TIMER — high-precision count-up for the current level.
+   Runs fully independent of the flash cycle (TimerEngine). Tracks elapsed time
+   in milliseconds. The timer is never artificially modified — it counts up
+   naturally and only pauses when the player reaches the finish.
+   ============================================================================ */
+class StageTimer {
+  constructor() {
+    this.elapsed = 0;        // ms accumulated while running
+    this.running = false;
+    this._startStamp = 0;
+  }
+
+  reset() {
+    this.elapsed = 0;
+    this.running = false;
+    this._startStamp = 0;
+  }
+
+  start() {
+    if (this.running) return;
+    this.running = true;
+    this._startStamp = performance.now();
+  }
+
+  pause() {
+    if (!this.running) return;
+    this.elapsed += performance.now() - this._startStamp;
+    this.running = false;
+  }
+
+  /** Total live time in ms = accumulated + current run. */
+  get totalMs() {
+    const live = this.running ? performance.now() - this._startStamp : 0;
+    return this.elapsed + live;
+  }
+
+  get totalSeconds() { return this.totalMs / 1000; }
+
+  /** Format ms as MM:SS.cc (centiseconds). */
+  static format(ms) {
+    if (ms < 0) ms = 0;
+    const totalCs = Math.floor(ms / 10);
+    const cs = totalCs % 100;
+    const totalSec = Math.floor(totalCs / 100);
+    const sec = totalSec % 60;
+    const min = Math.floor(totalSec / 60);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(min)}:${pad(sec)}.${pad(cs)}`;
+  }
+}
+
+/* ============================================================================
+   PLAYER — continuous velocity movement with per-axis AABB wall collision.
+   Position is stored in maze-space pixels.
+   ============================================================================ */
+class Player {
+  constructor(el, maze) {
+    this.el = el;
+    this.maze = maze;
+    this.geom = null;
+    this.x = 0;
+    this.y = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.speed = 0;
+    this.radius = 6;
+    this.onCollision = null;
+    this._lastCollide = 0;
+  }
+
+  setGeometry(geom) {
+    this.geom = geom;
+    this.radius = geom.radius;
+    this.speed = geom.cellSize * 0.085;
+    this.el.style.width = geom.radius * 2 + 'px';
+    this.el.style.height = geom.radius * 2 + 'px';
+  }
+
+  spawnAtStart() {
+    const cs = this.geom.cellSize;
+    this.x = this.maze.start.c * cs + cs / 2;
+    this.y = this.maze.start.r * cs + cs / 2;
+    this.vx = this.vy = 0;
+    this.render();
+  }
+
+  setInput(vx, vy) {
+    const mag = Math.hypot(vx, vy);
+    if (mag > 1) { vx /= mag; vy /= mag; }
+    this.vx = vx;
+    this.vy = vy;
+  }
+
+  update() {
+    if (this.vx === 0 && this.vy === 0) return;
+    const movedX = this._tryMove(this.vx * this.speed, 0);
+    const movedY = this._tryMove(0, this.vy * this.speed);
+    if (!movedX && !movedY) this._reportCollision();
+    this.render();
+  }
+
+  _tryMove(dx, dy) {
+    if (dx === 0 && dy === 0) return false;
+    const nx = this.x + dx, ny = this.y + dy;
+    if (this._collides(nx, ny)) { this._reportCollision(); return false; }
+    this.x = nx;
+    this.y = ny;
+    return true;
+  }
+
+  _reportCollision() {
+    const now = performance.now();
+    if (now - this._lastCollide > 220) {
+      this._lastCollide = now;
+      if (this.onCollision) this.onCollision();
+    }
+  }
+
+  _collides(nx, ny) {
+    const cs = this.geom.cellSize;
+    const r = this.radius * 0.82;
+    const totalW = this.maze.cols * cs;
+    const totalH = this.maze.rows * cs;
+
+    if (nx - r < 0 || ny - r < 0 || nx + r > totalW || ny + r > totalH) return true;
+
+    const minC = Math.floor((nx - r) / cs), maxC = Math.floor((nx + r) / cs);
+    const minR = Math.floor((ny - r) / cs), maxR = Math.floor((ny + r) / cs);
+    const pad = 0.5;
+
+    for (let rr = minR; rr <= maxR; rr++) {
+      for (let cc = minC; cc <= maxC; cc++) {
+        if (cc < 0 || rr < 0 || cc >= this.maze.cols || rr >= this.maze.rows) continue;
+        const w = this.maze.cells[rr * this.maze.cols + cc].walls;
+        const left = cc * cs, top = rr * cs, right = left + cs, bottom = top + cs;
+        const overlapV = (ny + r) > top && (ny - r) < bottom;
+        const overlapH = (nx + r) > left && (nx - r) < right;
+        if (w.W && cc > 0 && (nx - r) < left + pad && overlapV) return true;
+        if (w.E && cc < this.maze.cols - 1 && (nx + r) > right - pad && overlapV) return true;
+        if (w.N && rr > 0 && (ny - r) < top + pad && overlapH) return true;
+        if (w.S && rr < this.maze.rows - 1 && (ny + r) > bottom - pad && overlapH) return true;
+      }
+    }
+    return false;
+  }
+
+  cell() {
+    const cs = this.geom.cellSize;
+    return { c: Math.floor(this.x / cs), r: Math.floor(this.y / cs) };
+  }
+
+  render() {
+    const { offsetX, offsetY } = this.geom;
+    const px = offsetX + this.x, py = offsetY + this.y;
+    this.el.style.transform = `translate(${px - this.radius}px, ${py - this.radius}px)`;
+    const root = document.documentElement.style;
+    root.setProperty('--spot-x', (px / window.innerWidth * 100) + '%');
+    root.setProperty('--spot-y', (py / window.innerHeight * 100) + '%');
+  }
+}
+
+/* ============================================================================
+   VIRTUAL JOYSTICK — dynamic floating joystick under the thumb (bottom half).
+   ============================================================================ */
+class VirtualJoystick {
+  constructor(root, knob, onVector) {
+    this.root = root;
+    this.knob = knob;
+    this.onVector = onVector;
+    this.maxRadius = 50;
+    this.active = false;
+    this.touchId = null;
+    this.originX = 0;
+    this.originY = 0;
+    window.addEventListener('touchstart', (e) => this._onStart(e), { passive: false });
+    window.addEventListener('touchmove', (e) => this._onMove(e), { passive: false });
+    window.addEventListener('touchend', (e) => this._onEnd(e), { passive: false });
+    window.addEventListener('touchcancel', (e) => this._onEnd(e), { passive: false });
+  }
+
+  _onStart(e) {
+    if (this.active) return;
+    const t = e.changedTouches[0];
+    if (t.clientY < window.innerHeight * 0.42) return;
+    // Ignore touches on interactive controls (menu buttons + PULSE button).
+    if (e.target.closest && e.target.closest('.btn, #flash-btn')) return;
+    e.preventDefault();
+    this.active = true;
+    this.touchId = t.identifier;
+    this.originX = t.clientX;
+    this.originY = t.clientY;
+    this.root.style.left = this.originX + 'px';
+    this.root.style.top = this.originY + 'px';
+    this.root.classList.add('active');
+    this._setKnob(0, 0);
+  }
+
+  _onMove(e) {
+    if (!this.active) return;
+    const t = this._find(e.changedTouches);
+    if (!t) return;
+    e.preventDefault();
+    let dx = t.clientX - this.originX;
+    let dy = t.clientY - this.originY;
+    const dist = Math.hypot(dx, dy);
+    if (dist > this.maxRadius) { dx = dx / dist * this.maxRadius; dy = dy / dist * this.maxRadius; }
+    this._setKnob(dx, dy);
+    const dead = 8;
+    this.onVector(
+      Math.abs(dx) < dead ? 0 : dx / this.maxRadius,
+      Math.abs(dy) < dead ? 0 : dy / this.maxRadius
+    );
+  }
+
+  _onEnd(e) {
+    if (!this.active || !this._find(e.changedTouches)) return;
+    this.active = false;
+    this.touchId = null;
+    this.root.classList.remove('active');
+    this.onVector(0, 0);
+  }
+
+  _find(list) {
+    for (const t of list) if (t.identifier === this.touchId) return t;
+    return null;
+  }
+
+  _setKnob(dx, dy) {
+    this.knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+  }
+}
+
+/* ============================================================================
+   KEYBOARD CONTROLLER — Arrow keys / WASD.
+   ============================================================================ */
+class KeyboardController {
+  constructor(onVector) {
+    this.onVector = onVector;
+    this.keys = { up: false, down: false, left: false, right: false };
+    window.addEventListener('keydown', (e) => this._set(e, true));
+    window.addEventListener('keyup', (e) => this._set(e, false));
+  }
+
+  _set(e, val) {
+    let changed = true;
+    switch (e.key.toLowerCase()) {
+      case 'arrowup': case 'w': this.keys.up = val; break;
+      case 'arrowdown': case 's': this.keys.down = val; break;
+      case 'arrowleft': case 'a': this.keys.left = val; break;
+      case 'arrowright': case 'd': this.keys.right = val; break;
+      default: changed = false;
+    }
+    if (changed) {
+      e.preventDefault();
+      this.onVector(
+        (this.keys.right ? 1 : 0) - (this.keys.left ? 1 : 0),
+        (this.keys.down ? 1 : 0) - (this.keys.up ? 1 : 0)
+      );
+    }
+  }
+}
+
+/* ============================================================================
+   SCORE MANAGER — lives + time-based performance scoring.
+   Score = max(0, BASE_POINTS - elapsedSeconds * TIME_PENALTY).
+   Score depends purely on actual elapsed time. Wall hits only cost a life and
+   trigger visual feedback — they never alter the timer or the score directly.
+   ============================================================================ */
+class ScoreManager {
+  constructor() {
+    this.MAX_LIVES = 3;
+    this.BASE_POINTS = 5000;       // perfect-run base for each level
+    this.TIME_PENALTY = 100;       // points lost per elapsed second
+    this.GOLD_TIME = 15;           // seconds for a "gold" finish
+    this.SILVER_TIME = 25;         // seconds for a "silver" finish
+    this.reset();
+  }
+
+  reset() {
+    this.total = 0;
+    this.lives = this.MAX_LIVES;
+  }
+
+  /** Compute the level score from total elapsed seconds (incl. penalties). */
+  computeLevelScore(elapsedSeconds) {
+    return Math.max(0, Math.round(this.BASE_POINTS - elapsedSeconds * this.TIME_PENALTY));
+  }
+
+  bankLevel(score) { this.total += Math.max(0, Math.round(score)); }
+  loseLife() { this.lives = Math.max(0, this.lives - 1); return this.lives; }
+
+  /** Refill health to maximum (called at the start of each new level). */
+  restoreLives() { this.lives = this.MAX_LIVES; return this.lives; }
+
+  rating(elapsedSeconds) {
+    if (elapsedSeconds <= this.GOLD_TIME) return 'GOLD';
+    if (elapsedSeconds <= this.SILVER_TIME) return 'SILVER';
+    return 'CLEAR';
+  }
+
+  get isDead() { return this.lives <= 0; }
+}
+
+/* ============================================================================
+   UI MANAGER — screen transitions + HUD rendering.
+   ============================================================================ */
+class UIManager {
+  constructor(dom) { this.dom = dom; }
+
+  _show(el) {
+    el.classList.remove('gone');
+    void el.offsetWidth;            // reflow so fade-in fires
+    el.classList.remove('hidden');
+  }
+
+  _hide(el) {
+    el.classList.add('hidden');
+    setTimeout(() => { if (el.classList.contains('hidden')) el.classList.add('gone'); }, 520);
+  }
+
+  hideAll() {
+    this._hide(this.dom.overlay);
+    this._hide(this.dom.endOverlay);
+  }
+
+  /**
+   * Show the end overlay with elegant, time-based final stats.
+   * stats = { elapsedMs, score, level }
+   *  - Victory: TIME ELAPSED + FINAL LEVEL SCORE (time-derived)
+   *  - Defeat:  TIME ELAPSED + LEVEL REACHED (no score line)
+   */
+  showEnd(victory, stats) {
+    const ov = this.dom.endOverlay;
+    ov.classList.remove('victory', 'defeat');
+
+    // Shared: precise time elapsed (mono neon-cyan via .stat-line b).
+    this.dom.statTime.textContent = StageTimer.format(stats.elapsedMs);
+
+    if (victory) {
+      ov.classList.add('victory');
+      this.dom.endTitle.textContent = 'Pulse Secured';
+      this.dom.endSub.textContent = 'All sectors cleared';
+      // Show score, hide the "level reached" line.
+      this.dom.statScore.textContent = stats.score.toLocaleString() + ' PTS';
+      this.dom.statScoreRow.style.display = '';
+      this.dom.statLevelRow.style.display = 'none';
+    } else {
+      ov.classList.add('defeat');
+      this.dom.endTitle.textContent = 'Pulse Lost';
+      this.dom.endSub.textContent = 'Connection terminated';
+      // Speedrun-focused: show level reached, hide the score line.
+      this.dom.statLevel.textContent = String(stats.level).padStart(2, '0');
+      this.dom.statLevelRow.style.display = '';
+      this.dom.statScoreRow.style.display = 'none';
+    }
+
+    document.body.classList.add('ended');   // wipe gameplay layers behind it
+    this._hide(this.dom.overlay);
+    this._show(ov);
+  }
+
+  renderLives(lives) {
+    this.dom.lifeDots.forEach((dot, i) => dot.classList.toggle('lost', i >= lives));
+  }
+
+  /**
+   * Restore the life dots with a smooth fade-back animation.
+   * Briefly forces all dots to the "lost" state, then clears them on the next
+   * frame so the CSS opacity/scale transition plays as they regen.
+   */
+  refreshLives(lives) {
+    this.dom.lifeDots.forEach((dot) => dot.classList.add('lost'));
+    requestAnimationFrame(() => requestAnimationFrame(() => this.renderLives(lives)));
+  }
+
+  /** Render the remaining flash charges on the mobile button badge/state. */
+  renderCharges(charges, max) {
+    if (this.dom.flashCount) this.dom.flashCount.textContent = charges;
+    this.dom.flashBtn.classList.toggle('depleted', charges <= 0);
+  }
+
+  /** Subtle red feedback on the pulse button when triggered with none left. */
+  signalEmptyCharges() {
+    const b = this.dom.flashBtn;
+    b.classList.add('depleted');
+    b.classList.remove('empty-shake');
+    void b.offsetWidth;
+    b.classList.add('empty-shake');
+    setTimeout(() => b.classList.remove('empty-shake'), 420);
+  }
+
+  /** Live count-up timer in the top-right corner. */
+  renderTimer(ms) {
+    this.dom.timer.textContent = StageTimer.format(ms);
+  }
+
+  setLevelTag(level) {
+    this.dom.levelTag.textContent = 'LEVEL ' + String(level).padStart(2, '0');
+  }
+}
+
+/* ============================================================================
+   GAME ENGINE — orchestrates loop, levels, state, scoring & feedback.
+   ============================================================================ */
+class GameEngine {
+  constructor() {
+    this.bus = new EventBus();
+    this.maze = new MazeGenerator();
+    this.timer = new TimerEngine(this.bus);
+
+    this.dom = {
+      shaker: document.getElementById('shaker'),
+      mazeEl: document.getElementById('maze'),
+      playerEl: document.getElementById('player'),
+      spotlight: document.getElementById('spotlight'),
+      progress: document.getElementById('progress-bar'),
+      overlay: document.getElementById('overlay'),
+      endOverlay: document.getElementById('end-overlay'),
+      endTitle: document.getElementById('end-title'),
+      endSub: document.getElementById('end-sub'),
+      statTime: document.getElementById('stat-time'),
+      statScore: document.getElementById('stat-score'),
+      statScoreRow: document.getElementById('stat-score-row'),
+      statLevel: document.getElementById('stat-level'),
+      statLevelRow: document.getElementById('stat-level-row'),
+      startBtn: document.getElementById('start-btn'),
+      replayBtn: document.getElementById('replay-btn'),
+      levelTag: document.getElementById('level-tag'),
+      flashOverlay: document.getElementById('flash-overlay'),
+      joystick: document.getElementById('joystick'),
+      knob: document.getElementById('joy-knob'),
+      timer: document.getElementById('timer'),
+      lifeDots: Array.from(document.querySelectorAll('#lives .life')),
+      flashBtn: document.getElementById('flash-btn'),
+      flashCount: document.querySelector('#flash-btn .count')
+    };
+
+    this.MAX_LEVELS = 5;
+    this.INVULN_MS = 750;
+    this.MAX_CHARGES = 3;
+    this.MANUAL_FLASH_MS = 5000;     // manual illumination duration (5s)
+    this.level = 1;
+    this.state = GameState.MENU;
+    this.geom = null;
+    this._transitioning = false;
+    this._lastDamage = 0;
+
+    // Flash-help power-up state (independent of the periodic loop)
+    this.charges = this.MAX_CHARGES;
+    this._manualFlashActive = false;
+    this._manualFlashTimeout = null;
+
+    this.score = new ScoreManager();
+    this.stageTimer = new StageTimer();
+    this.ui = new UIManager(this.dom);
+    this.player = new Player(this.dom.playerEl, this.maze);
+
+    this.kbVec = { x: 0, y: 0 };
+    this.joyVec = { x: 0, y: 0 };
+
+    this._loop = this._loop.bind(this);
+    this._initControls();
+    this._initEvents();
+  }
+
+  get running() { return this.state === GameState.PLAYING; }
+
+  _initControls() {
+    this.keyboard = new KeyboardController((vx, vy) => {
+      this.kbVec = { x: vx, y: vy };
+      this._applyInput();
+    });
+    this.joystick = new VirtualJoystick(this.dom.joystick, this.dom.knob, (vx, vy) => {
+      this.joyVec = { x: vx, y: vy };
+      this._applyInput();
+    });
+  }
+
+  _applyInput() {
+    this.player.setInput(this.kbVec.x || this.joyVec.x, this.kbVec.y || this.joyVec.y);
+  }
+
+  _initEvents() {
+    this.dom.startBtn.addEventListener('click', () => this.start());
+    this.dom.replayBtn.addEventListener('click', () => this.start());
+
+    this.bus.on('flash:on', () => {
+      this.dom.mazeEl.classList.add('flash');
+      this.dom.spotlight.classList.remove('active');
+      this.dom.progress.classList.remove('dash');
+    });
+
+    this.bus.on('flash:off', () => {
+      this.dom.mazeEl.classList.remove('flash');
+      this.dom.progress.classList.add('dash');
+      // Keep darkness hidden if a manual flash is currently illuminating.
+      if (!this._manualFlashActive) this.dom.spotlight.classList.add('active');
+    });
+
+    this.bus.on('timer:progress', (e) => {
+      this.dom.progress.style.transform = `scaleX(${e.detail.ratio})`;
+    });
+
+    this.player.onCollision = () => this._onCollision();
+
+    // Flash-help triggers — Spacebar (desktop) + floating button (mobile).
+    // preventDefault on Space stops the page from scrolling down on use.
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' || e.key === ' ') {
+        e.preventDefault();
+        if (!e.repeat) this._triggerManualFlash();
+      }
+    }, { passive: false });
+
+    // Touch (snappy) + click (desktop fallback) for the mobile PULSE button.
+    this.dom.flashBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      this._triggerManualFlash();
+    }, { passive: false });
+    this.dom.flashBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      this._triggerManualFlash();
+    });
+
+    // CSS media queries render the button on mobile/touch viewports. This is a
+    // belt-and-suspenders JS fallback that force-shows it on touch-capable
+    // devices that may slip past the queries (e.g. large hybrid tablets).
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+      this.dom.flashBtn.classList.add('force-visible');
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.pause();
+      else this.resume();
+    });
+
+    let rt;
+    window.addEventListener('resize', () => {
+      clearTimeout(rt);
+      rt = setTimeout(() => {
+        if (this.state === GameState.PLAYING || this.state === GameState.PAUSED) this._rebuildLayout();
+      }, 250);
+    });
+  }
+
+  /* ---- Lifecycle ---- */
+  start() {
+    this.ui.hideAll();
+    this.level = 1;
+    this._transitioning = false;
+    this.score.reset();
+    this.ui.renderLives(this.score.lives);
+    this._clearManualFlash();
+    this.charges = this.MAX_CHARGES;       // 3 charges per game
+    this.ui.renderCharges(this.charges, this.MAX_CHARGES);
+    this.state = GameState.PLAYING;
+    document.body.classList.remove('ended');  // restore gameplay layers
+    document.body.classList.add('playing');   // reveals the mobile PULSE button
+    this._buildLevel();
+    this.timer.start();           // flash cycle (independent)
+    this.stageTimer.start();      // count-up timer starts at PLAYING
+    requestAnimationFrame(this._loop);
+  }
+
+  pause() {
+    if (this.state !== GameState.PLAYING) return;
+    this.state = GameState.PAUSED;
+    this.timer.stop();
+    this.stageTimer.pause();
+    this._clearManualFlash();
+  }
+
+  resume() {
+    if (this.state !== GameState.PAUSED) return;
+    this.state = GameState.PLAYING;
+    this.timer.start();
+    this.stageTimer.start();
+    requestAnimationFrame(this._loop);
+  }
+
+  _buildLevel() {
+    this.ui.setLevelTag(this.level);
+    this._lastDamage = 0;
+
+    // Health regen: every new level fully restores lives to max (3),
+    // with the life dots smoothly fading back into full neon visibility.
+    this.score.restoreLives();
+    this.ui.refreshLives(this.score.lives);
+
+    this.stageTimer.reset();
+    this.stageTimer.start();      // restart count-up for the new level
+    this.ui.renderTimer(0);
+    this.maze.configure(window.innerWidth, window.innerHeight, this.level).generate();
+    this._computeGeometry();
+    this._renderMaze();
+    this.player.setGeometry(this.geom);
+    this.player.spawnAtStart();
+    this.timer.reset();
+  }
+
+  _rebuildLayout() {
+    this.maze.configure(window.innerWidth, window.innerHeight, this.level).generate();
+    this._computeGeometry();
+    this._renderMaze();
+    this.player.setGeometry(this.geom);
+    this.player.spawnAtStart();
+  }
+
+  /* ---- Flash-help power-up ---- */
+  _triggerManualFlash() {
+    if (this.state !== GameState.PLAYING) return;
+
+    // Already lit by the periodic loop or an active manual flash — do nothing.
+    if (this.timer.phase === 'flash' || this._manualFlashActive) return;
+
+    // No charges left — subtle red feedback, no flash.
+    if (this.charges <= 0) {
+      this.ui.signalEmptyCharges();
+      return;
+    }
+
+    this.charges--;
+    this.ui.renderCharges(this.charges, this.MAX_CHARGES);
+
+    // Illuminate independently of the loop: a separate class + hidden spotlight.
+    this._manualFlashActive = true;
+    this.dom.mazeEl.classList.add('manual-flash');
+    this.dom.spotlight.classList.remove('active');
+
+    clearTimeout(this._manualFlashTimeout);
+    this._manualFlashTimeout = setTimeout(() => this._endManualFlash(), this.MANUAL_FLASH_MS);
+  }
+
+  _endManualFlash() {
+    this._manualFlashActive = false;
+    this.dom.mazeEl.classList.remove('manual-flash');
+    // Restore darkness only if the periodic loop is still in its dark phase.
+    if (this.state === GameState.PLAYING && this.timer.phase === 'dash') {
+      this.dom.spotlight.classList.add('active');
+    }
+  }
+
+  _clearManualFlash() {
+    clearTimeout(this._manualFlashTimeout);
+    this._manualFlashTimeout = null;
+    this._manualFlashActive = false;
+    this.dom.mazeEl.classList.remove('manual-flash');
+  }
+
+  /* ---- Collision & damage ---- */
+  _onCollision() {
+    if (this.state !== GameState.PLAYING) return;
+    this._shake();
+
+    const inDark = this.timer.phase === 'dash';
+    const now = performance.now();
+    if (inDark && now - this._lastDamage > this.INVULN_MS) {
+      this._lastDamage = now;
+      this._takeDamage();
+    } else {
+      this._ripple('');
+    }
+  }
+
+  _takeDamage() {
+    // Hitting a hidden wall costs 1 life + visual feedback only.
+    // The count-up timer keeps running naturally — no artificial time jump.
+    this.score.loseLife();
+    this.ui.renderLives(this.score.lives);
+    this.dom.playerEl.classList.add('hurt');
+    setTimeout(() => this.dom.playerEl.classList.remove('hurt'), 200);
+    this._ripple('danger');
+    if (this.score.isDead) this._gameOver(false);
+  }
+
+  /* ---- Win / lose ---- */
+  _checkWin() {
+    const pc = this.player.cell();
+    if (pc.c === this.maze.finish.c && pc.r === this.maze.finish.r) this._winLevel();
+  }
+
+  _winLevel() {
+    if (this._transitioning) return;
+    this._transitioning = true;
+
+    this._clearManualFlash();
+    // Stop the count-up the instant the player reaches the exit.
+    this.stageTimer.pause();
+    const elapsedMs = this.stageTimer.totalMs;
+    const levelScore = this.score.computeLevelScore(elapsedMs / 1000);
+    this.score.bankLevel(levelScore);
+
+    // Snapshot stats for the end overlay (last level wins the game).
+    this._lastStats = { elapsedMs, score: levelScore };
+
+    this.dom.flashOverlay.classList.add('flash');
+    setTimeout(() => this.dom.flashOverlay.classList.remove('flash'), 160);
+    this._ripple('goal');
+
+    this.dom.mazeEl.classList.add('transitioning');
+    this.dom.spotlight.classList.remove('active');
+
+    if (this.level >= this.MAX_LEVELS) {
+      setTimeout(() => this._gameOver(true), 650);
+      return;
+    }
+
+    setTimeout(() => {
+      this.level++;
+      this._buildLevel();
+      this.dom.mazeEl.classList.remove('transitioning');
+      this._transitioning = false;
+    }, 650);
+  }
+
+  _gameOver(victory) {
+    this.state = GameState.GAMEOVER;
+    document.body.classList.remove('playing');   // hide the mobile PULSE button
+    this.timer.stop();
+    this.stageTimer.pause();
+    this._clearManualFlash();
+    this.player.setInput(0, 0);
+    this.kbVec = { x: 0, y: 0 };
+    this.joyVec = { x: 0, y: 0 };
+    this.dom.mazeEl.classList.remove('flash', 'transitioning');
+    this.dom.spotlight.classList.remove('active');
+
+    let stats;
+    if (victory && this._lastStats) {
+      // Victory: final cleared-level time + time-derived score.
+      stats = { ...this._lastStats, level: this.level };
+    } else {
+      // Defeat: speedrun stats — live time + level reached (no score).
+      stats = { elapsedMs: this.stageTimer.totalMs, score: 0, level: this.level };
+    }
+    this.ui.showEnd(victory, stats);
+  }
+
+  /* ---- Rendering ---- */
+  _computeGeometry() {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const margin = Math.min(vw, vh) * 0.06;
+    const cellSize = Math.floor(Math.min((vw - margin * 2) / this.maze.cols, (vh - margin * 2) / this.maze.rows));
+    const totalW = cellSize * this.maze.cols;
+    const totalH = cellSize * this.maze.rows;
+    this.geom = {
+      cellSize,
+      wallThick: Math.max(1, Math.round(cellSize * 0.04)),
+      offsetX: (vw - totalW) / 2,
+      offsetY: (vh - totalH) / 2,
+      radius: Math.max(4, Math.round(cellSize * 0.22)),
+      totalW, totalH
+    };
+    document.documentElement.style.setProperty('--spot-radius', cellSize * 1.15 + 'px');
+  }
+
+  _renderMaze() {
+    const g = this.geom, m = this.dom.mazeEl;
+    const cs = g.cellSize, t = g.wallThick;
+    m.innerHTML = '';
+    m.style.width = g.totalW + 'px';
+    m.style.height = g.totalH + 'px';
+    m.style.left = g.offsetX + 'px';
+    m.style.top = g.offsetY + 'px';
+
+    const frag = document.createDocumentFragment();
+    for (let r = 0; r < this.maze.rows; r++) {
+      for (let c = 0; c < this.maze.cols; c++) {
+        const cell = this.maze.cells[r * this.maze.cols + c];
+        const x = c * cs, y = r * cs;
+        if (cell.walls.N) frag.appendChild(this._wall(x, y, cs + t, t));
+        if (cell.walls.W) frag.appendChild(this._wall(x, y, t, cs + t));
+        if (c === this.maze.cols - 1 && cell.walls.E) frag.appendChild(this._wall(x + cs, y, t, cs + t));
+        if (r === this.maze.rows - 1 && cell.walls.S) frag.appendChild(this._wall(x, y + cs, cs + t, t));
+      }
+    }
+    frag.appendChild(this._marker(this.maze.start, 'start', cs));
+    frag.appendChild(this._marker(this.maze.finish, 'finish', cs));
+    m.appendChild(frag);
+  }
+
+  _wall(x, y, w, h) {
+    const el = document.createElement('div');
+    el.className = 'wall';
+    el.style.left = (x - this.geom.wallThick / 2) + 'px';
+    el.style.top = (y - this.geom.wallThick / 2) + 'px';
+    el.style.width = w + 'px';
+    el.style.height = h + 'px';
+    return el;
+  }
+
+  _marker(cell, cls, cs) {
+    const el = document.createElement('div');
+    el.className = 'marker ' + cls;
+    const sz = cs * 0.5;
+    el.style.width = sz + 'px';
+    el.style.height = sz + 'px';
+    el.style.left = (cell.c * cs + cs / 2 - sz / 2) + 'px';
+    el.style.top = (cell.r * cs + cs / 2 - sz / 2) + 'px';
+    return el;
+  }
+
+  _shake() {
+    const s = this.dom.shaker;
+    s.classList.remove('shake');
+    void s.offsetWidth;
+    s.classList.add('shake');
+  }
+
+  _ripple(variant) {
+    if (!this.geom) return;
+    const el = document.createElement('div');
+    el.className = 'ripple' + (variant ? ' ' + variant : '');
+    el.style.left = (this.geom.offsetX + this.player.x) + 'px';
+    el.style.top = (this.geom.offsetY + this.player.y) + 'px';
+    this.dom.shaker.appendChild(el);
+    setTimeout(() => el.remove(), 650);
+  }
+
+  /* ---- Main loop ---- */
+  _loop() {
+    if (!this.running) return;
+    this.player.update();
+    if (!this._transitioning) {
+      this.ui.renderTimer(this.stageTimer.totalMs);
+      this._checkWin();
+    }
+    requestAnimationFrame(this._loop);
+  }
+}
+
+/* ============================================================================
+   BOOTSTRAP
+   ============================================================================ */
+window.addEventListener('DOMContentLoaded', () => {
+  window.__game = new GameEngine();
+});
+</script>
+</body>
+</html>

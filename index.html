@@ -364,6 +364,92 @@
     box-shadow: 0 0 18px rgba(255, 0, 127, 0.4), inset 0 0 10px rgba(255, 0, 127, 0.1);
   }
 
+  /* Speed / sensitivity slider row inside the pause overlay */
+  .speed-row {
+    width: 100%;
+    max-width: 260px;
+    margin-top: 22px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .speed-row label {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: rgba(0, 255, 255, 0.55);
+    text-shadow: 0 0 4px rgba(0, 255, 255, 0.3);
+  }
+
+  /* ---- Neon range input ---- */
+  #speed-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.08);
+    outline: none;
+    cursor: pointer;
+  }
+  /* Track — WebKit */
+  #speed-slider::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, rgba(0,255,255,0.15), rgba(0,255,255,0.25));
+  }
+  /* Track — Firefox */
+  #speed-slider::-moz-range-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, rgba(0,255,255,0.15), rgba(0,255,255,0.25));
+    border: none;
+  }
+  /* Thumb — WebKit */
+  #speed-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #00ffff;
+    border: 2px solid #050505;
+    box-shadow: 0 0 10px #00ffff, 0 0 4px #00ffff;
+    margin-top: -7px;
+    cursor: pointer;
+    transition: box-shadow 0.2s ease;
+  }
+  #speed-slider::-webkit-slider-thumb:active {
+    box-shadow: 0 0 18px #00ffff, 0 0 8px #00ffff;
+    transform: scale(1.15);
+  }
+  /* Thumb — Firefox */
+  #speed-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #00ffff;
+    border: 2px solid #050505;
+    box-shadow: 0 0 10px #00ffff, 0 0 4px #00ffff;
+    cursor: pointer;
+  }
+  #speed-slider::-moz-range-thumb:active {
+    box-shadow: 0 0 18px #00ffff, 0 0 8px #00ffff;
+  }
+  /* Live value badge */
+  .speed-value {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    color: #00ffff;
+    text-shadow: 0 0 6px rgba(0, 255, 255, 0.5);
+    letter-spacing: 0.15em;
+    font-variant-numeric: tabular-nums;
+  }
+
   /* ============================================================
      PULSE (FLASH HELP) — compact header button, sits directly
      next to the Pause button in the top-left HUD bar.
@@ -599,6 +685,74 @@
     transition: opacity 0.15s ease;
   }
   #flash-overlay.flash { opacity: 0.35; }
+
+  /* ============================================================
+     MOVEMENT HINT — tutorial overlay for touch/mobile ONLY.
+     Hidden on desktop (hover pointer detected). Auto-dismisses
+     on the first touch interaction.
+     ============================================================ */
+  #movement-hint {
+    /* Hidden by default — desktop users with keyboard never see it */
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 80;               /* above maze/spotlight, below HUD (90+) */
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    pointer-events: none;
+    opacity: 0.85;
+    transition: opacity 0.4s ease, visibility 0.4s ease;
+    animation: hintPulse 2.4s ease-in-out infinite;
+  }
+  /* Reveal on touch-primary devices (phones, tablets) */
+  @media (hover: none) and (pointer: coarse) {
+    #movement-hint { display: flex; }
+  }
+  @media (max-width: 768px) {
+    #movement-hint { display: flex; }
+  }
+  #movement-hint.dismissed {
+    opacity: 0;
+    visibility: hidden;
+  }
+  @keyframes hintPulse {
+    0%, 100% { opacity: 0.85; }
+    50%      { opacity: 0.4; }
+  }
+  #movement-hint .hint-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 255, 255, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #00ffff;
+    font-size: 22px;
+    box-shadow: 0 0 12px rgba(0, 255, 255, 0.35);
+  }
+  #movement-hint .hint-text {
+    font-family: 'Roboto Mono', monospace;
+    font-size: clamp(11px, 3vw, 14px);
+    font-weight: 300;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: #00ffff;
+    text-shadow: 0 0 8px rgba(0, 255, 255, 0.6);
+    text-align: center;
+    line-height: 1.6;
+  }
+  #movement-hint .hint-sub {
+    font-family: 'Roboto Mono', monospace;
+    font-size: clamp(10px, 2.5vw, 12px);
+    font-weight: 300;
+    letter-spacing: 0.15em;
+    color: rgba(0, 255, 255, 0.45);
+    text-shadow: 0 0 6px rgba(0, 255, 255, 0.3);
+    text-align: center;
+  }
 </style>
 </head>
 <body>
@@ -625,6 +779,13 @@
     <div id="flash-overlay"></div>
     <div id="joystick"><div id="joy-knob"></div></div>
 
+    <!-- MOVEMENT HINT (dismisses on first interaction) -->
+    <div id="movement-hint" class="dismissed">
+      <div class="hint-icon">👋🏻</div>
+      <div class="hint-text">Touch &amp; Drag to Move</div>
+      <div class="hint-sub">Spacebar → Pulse &nbsp;•&nbsp; Esc → Pause</div>
+    </div>
+
     <!-- PAUSE OVERLAY -->
     <div id="pause-overlay">
       <h1>Paused</h1>
@@ -632,6 +793,11 @@
         <button class="pause-action" id="pause-resume">Resume Game</button>
         <button class="pause-action" id="pause-restart">Restart Level</button>
         <button class="pause-action danger" id="pause-quit">Give Up</button>
+      </div>
+      <div class="speed-row">
+        <label for="speed-slider">Speed / Sensitivity</label>
+        <input type="range" id="speed-slider" min="3" max="8" step="0.5" value="7">
+        <span class="speed-value" id="speed-value">7.0</span>
       </div>
     </div>
 
@@ -910,12 +1076,13 @@ class Player {
     this._lastCollide = 0;
   }
 
-  setGeometry(geom) {
+  setGeometry(geom, speedMultiplier = 7) {
     this.geom = geom;
     this.radius = geom.radius;
-    // ~7 cells/sec — boosted 35% from old baseline for snappy arcade feel.
-    // Expressed in px/sec (delta-time driven), not px/frame.
-    this.speed = geom.cellSize * 7;
+    // Speed in px/sec, delta-time driven. The multiplier controls cells/sec:
+    //   Desktop (keyboard) → 7 cells/sec — fast, competitive.
+    //   Mobile  (joystick) → 4.5 cells/sec — smooth, precise control.
+    this.speed = geom.cellSize * speedMultiplier;
     this.el.style.width = geom.radius * 2 + 'px';
     this.el.style.height = geom.radius * 2 + 'px';
   }
@@ -1182,6 +1349,9 @@ class UIManager {
   showPause()  { this.dom.pauseOverlay.classList.add('active'); }
   hidePause()  { this.dom.pauseOverlay.classList.remove('active'); }
 
+  showHint()    { this.dom.movementHint.classList.remove('dismissed'); }
+  dismissHint() { this.dom.movementHint.classList.add('dismissed'); }
+
   /** Render the remaining flash charges on the mobile button badge/state. */
   renderCharges(charges, max) {
     if (this.dom.flashCount) this.dom.flashCount.textContent = charges;
@@ -1240,7 +1410,10 @@ class GameEngine {
       knob: document.getElementById('joy-knob'),
       timer: document.getElementById('timer'),
       flashBtn: document.getElementById('flash-btn'),
-      flashCount: document.querySelector('#flash-btn .count')
+      flashCount: document.querySelector('#flash-btn .count'),
+      movementHint: document.getElementById('movement-hint'),
+      speedSlider: document.getElementById('speed-slider'),
+      speedValue: document.getElementById('speed-value')
     };
 
     this.MAX_LEVELS = 5;
@@ -1261,6 +1434,18 @@ class GameEngine {
     this.charges = this.MAX_CHARGES;
     this._manualFlashActive = false;
     this._manualFlashTimeout = null;
+
+    // Platform detection — gates the tutorial hint and speed tuning.
+    this._isTouchDevice = ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    this._hintActive = false;
+
+    // Mobile joystick needs gentler speed for precise control;
+    // desktop keyboard gets a faster competitive baseline.
+    this.SPEED_MULTIPLIER = this._isTouchDevice ? 4.5 : 7;
+
+    // Sync the pause-menu speed slider to the platform default
+    this.dom.speedSlider.value = this.SPEED_MULTIPLIER;
+    this.dom.speedValue.textContent = this.SPEED_MULTIPLIER.toFixed(1);
 
     this.score = new ScoreManager();
     this.stageTimer = new StageTimer();
@@ -1290,7 +1475,15 @@ class GameEngine {
   }
 
   _applyInput() {
-    this.player.setInput(this.kbVec.x || this.joyVec.x, this.kbVec.y || this.joyVec.y);
+    const vx = this.kbVec.x || this.joyVec.x;
+    const vy = this.kbVec.y || this.joyVec.y;
+    this.player.setInput(vx, vy);
+
+    // Dismiss the movement hint on the very first real input
+    if (this._hintActive && (vx !== 0 || vy !== 0)) {
+      this._hintActive = false;
+      this.ui.dismissHint();
+    }
   }
 
   _initEvents() {
@@ -1300,6 +1493,17 @@ class GameEngine {
     this.dom.pauseResume.addEventListener('click', () => this.resume());
     this.dom.pauseRestart.addEventListener('click', () => this.restartLevel());
     this.dom.pauseQuit.addEventListener('click', () => this.quitToMenu());
+
+    // Speed slider — updates SPEED_MULTIPLIER live from the pause menu.
+    // The new value is applied immediately when the game resumes/restarts.
+    this.dom.speedSlider.addEventListener('input', (e) => {
+      this.SPEED_MULTIPLIER = parseFloat(e.target.value);
+      this.dom.speedValue.textContent = this.SPEED_MULTIPLIER.toFixed(1);
+      // Hot-apply to the player so the change is felt instantly upon resume
+      if (this.player.geom) {
+        this.player.speed = this.player.geom.cellSize * this.SPEED_MULTIPLIER;
+      }
+    });
 
     this.bus.on('flash:on', () => {
       this.dom.mazeEl.classList.add('flash');
@@ -1449,16 +1653,22 @@ class GameEngine {
     this.maze.configure(window.innerWidth, window.innerHeight, this.level).generate();
     this._computeGeometry();
     this._renderMaze();
-    this.player.setGeometry(this.geom);
+    this.player.setGeometry(this.geom, this.SPEED_MULTIPLIER);
     this.player.spawnAtStart();
     this.timer.reset();
+
+    // Show the movement hint only on touch devices
+    if (this._isTouchDevice) {
+      this._hintActive = true;
+      this.ui.showHint();
+    }
   }
 
   _rebuildLayout() {
     this.maze.configure(window.innerWidth, window.innerHeight, this.level).generate();
     this._computeGeometry();
     this._renderMaze();
-    this.player.setGeometry(this.geom);
+    this.player.setGeometry(this.geom, this.SPEED_MULTIPLIER);
     this.player.spawnAtStart();
   }
 

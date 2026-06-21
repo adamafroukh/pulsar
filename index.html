@@ -42,20 +42,9 @@
     overflow: hidden;
   }
 
-  /* Screen-shake wrapper */
   #shaker {
     position: absolute;
     inset: 0;
-    will-change: transform;
-  }
-  #shaker.shake {
-    animation: shake 0.32s cubic-bezier(.36,.07,.19,.97) both;
-  }
-  @keyframes shake {
-    10%, 90% { transform: translate3d(-2px, 0, 0); }
-    20%, 80% { transform: translate3d(3px, 0, 0); }
-    30%, 50%, 70% { transform: translate3d(-5px, 1px, 0); }
-    40%, 60% { transform: translate3d(5px, -1px, 0); }
   }
 
   /* ============================================================
@@ -1108,26 +1097,61 @@ class Player {
   }
 
   /**
-   * @param {number} dt — seconds elapsed since last frame (from rAF delta).
-   * Movement is frame-rate independent: identical speed on 60Hz, 120Hz, or
-   * a stuttering mobile browser.
+   * Frictionless sliding physics (delta-time driven).
+   *
+   * Each axis is tested independently. If an axis is blocked by a wall,
+   * its velocity component is cancelled but the parallel axis gets the
+   * FULL speed — not the reduced diagonal component. This prevents the
+   * "sticky wall" feel where sliding along a surface at a diagonal drops
+   * to ~70% speed.
+   *
+   * Resolution order:
+   *   1. Try moving both axes simultaneously (ideal case, no wall).
+   *   2. If blocked, try each axis alone at full speed (wall slide).
+   *   3. If both axes are individually blocked → true corner collision.
    */
   update(dt) {
     if (this.vx === 0 && this.vy === 0) return;
-    const step = this.speed * dt;
-    const movedX = this._tryMove(this.vx * step, 0);
-    const movedY = this._tryMove(0, this.vy * step);
-    if (!movedX && !movedY) this._reportCollision();
-    this.render();
-  }
 
-  _tryMove(dx, dy) {
-    if (dx === 0 && dy === 0) return false;
-    const nx = this.x + dx, ny = this.y + dy;
-    if (this._collides(nx, ny)) { this._reportCollision(); return false; }
-    this.x = nx;
-    this.y = ny;
-    return true;
+    const step = this.speed * dt;
+    const dx = this.vx * step;
+    const dy = this.vy * step;
+
+    // 1. Try the combined diagonal move first (most frames succeed here)
+    if (!this._collides(this.x + dx, this.y + dy)) {
+      this.x += dx;
+      this.y += dy;
+      this.render();
+      return;
+    }
+
+    // 2. Blocked diagonally — resolve per-axis with full-speed projection.
+    //    When one axis is blocked, the other gets the entire speed magnitude
+    //    so sliding feels as fast as moving straight.
+    let slid = false;
+
+    if (dx !== 0) {
+      // Project full speed onto X when sliding along a horizontal wall
+      const slideX = Math.sign(this.vx) * step;
+      if (!this._collides(this.x + slideX, this.y)) {
+        this.x += slideX;
+        slid = true;
+      }
+    }
+
+    if (dy !== 0) {
+      // Project full speed onto Y when sliding along a vertical wall
+      const slideY = Math.sign(this.vy) * step;
+      if (!this._collides(this.x, this.y + slideY)) {
+        this.y += slideY;
+        slid = true;
+      }
+    }
+
+    // 3. If neither axis could move, the player is in a true corner — fire collision feedback
+    if (!slid) this._reportCollision();
+
+    this.render();
   }
 
   _reportCollision() {
@@ -1721,7 +1745,6 @@ class GameEngine {
      ------------------------------------------------------------------- */
   _onCollision() {
     if (this.state !== GameState.PLAYING) return;
-    this._shake();
     this._ripple('danger');
     this.dom.playerEl.classList.add('hurt');
     setTimeout(() => this.dom.playerEl.classList.remove('hurt'), 200);
@@ -1843,13 +1866,6 @@ class GameEngine {
     el.style.left = (cell.c * cs + cs / 2 - sz / 2) + 'px';
     el.style.top = (cell.r * cs + cs / 2 - sz / 2) + 'px';
     return el;
-  }
-
-  _shake() {
-    const s = this.dom.shaker;
-    s.classList.remove('shake');
-    void s.offsetWidth;
-    s.classList.add('shake');
   }
 
   _ripple(variant) {
